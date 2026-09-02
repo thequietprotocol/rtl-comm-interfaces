@@ -14,7 +14,7 @@ Basys 3 (Artix-7 XC7A35T) · SystemVerilog · Vivado/XSIM
 - Reset: synchronous, active-high
 
 ## Interface
-\`\`\`systemverilog
+```systemverilog
 module uart_rx #(
     parameter clk_freq       = 100_000_000,
     parameter baud_rate      = 19200,
@@ -26,8 +26,8 @@ module uart_rx #(
     output logic [7:0] rx_data_out,
     output logic rx_done
 );
-\`\`\`
-\`\`\`systemverilog
+```
+```systemverilog
 module uart_tx #(
     parameter clk_freq       = 100_000_000,
     parameter baud_rate      = 19200,
@@ -40,4 +40,4 @@ module uart_tx #(
     output logic tx,
     output logic tx_done
 );
-\`\`\`
+```
