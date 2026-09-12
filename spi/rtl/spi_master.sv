@@ -1,9 +1,6 @@
 
 module spi_master #(
-    parameter SYS_CLK = 100_000_000, // 100 MHz 
-    parameter SPI_CLK =   1_000_000,  // 1 MHz
     parameter NO_DATA_BITS = 8
-    
 )(
     input  logic clk, 
     input  logic rst, 
@@ -13,22 +10,22 @@ module spi_master #(
     output logic ready,
     output logic spi_done,
 
-    input logic miso, 
+    input  logic pol,  // Polarity
+    input  logic pha,  // Phase
+    input  logic [15:0] dvsr,  // Division factor to derive SPI CLK
+    input  logic miso, 
     output logic mosi, 
-    output logic sclk,
-    output logic ss_n
+    output logic sclk
 );
 
-typedef enum logic [1:0] {idle, sclk_state1, sclk_state2} state_t;
-localparam CLK_COUNT = SYS_CLK / SPI_CLK;
+typedef enum logic [1:0] {idle, sample_phase, shift_phase} state_t;
 
 state_t state_reg, state_nxt;
-logic [$clog2(CLK_COUNT / 2)-1:0] ticks_reg, ticks_nxt;
+logic [15:0] ticks_reg, ticks_nxt;
 logic [$clog2(NO_DATA_BITS)-1:0] data_count_reg, data_count_nxt;
 logic [NO_DATA_BITS-1:0] data_reg, data_nxt;
 logic mosi_reg, mosi_nxt;
-logic ss_reg, ss_nxt;
-logic sclk_reg, sclk_nxt;
+logic sclk_int, sclk_reg, sclk_nxt;
 
 always_ff @(posedge clk) begin
     if(rst) begin
@@ -37,8 +34,8 @@ always_ff @(posedge clk) begin
         data_count_reg <= '0;
         data_reg       <= '0;
         mosi_reg       <= '0;
-        sclk_reg       <= '0;
-        ss_reg         <= 1'b1;
+        sclk_reg       <= pol;
+
     end else begin
         state_reg      <= state_nxt;
         ticks_reg      <= ticks_nxt;
@@ -46,7 +43,6 @@ always_ff @(posedge clk) begin
         data_reg       <= data_nxt;
         mosi_reg       <= mosi_nxt;
         sclk_reg       <= sclk_nxt;
-        ss_reg         <= ss_nxt;
     end
 end
 
@@ -60,60 +56,52 @@ always_comb begin
     data_nxt       = data_reg;
     mosi_nxt       = mosi_reg;
     spi_done       = '0;
-    sclk_nxt       = sclk_reg;
-    ss_nxt         = ss_reg;
 
     case(state_reg)
         idle: 
             if(start) begin
-                state_nxt      = sclk_state1;
+                state_nxt      = sample_phase;
                 ticks_nxt      = '0;
                 data_count_nxt = '0;
                 data_nxt       = din;
                 mosi_nxt       = din[NO_DATA_BITS-1];
-                sclk_nxt       = 1'b0;
-                ss_nxt         = 1'b0;
             end
 
-        sclk_state1: 
-            if(ticks_reg == (CLK_COUNT / 2) - 1) begin
-                state_nxt = sclk_state2;
-                sclk_nxt  = 1'b1;
+        sample_phase: 
+            if(ticks_reg == dvsr) begin
+                state_nxt = shift_phase;
                 ticks_nxt = '0;
                 data_nxt  = {data_reg[NO_DATA_BITS-2:0], miso};
             end else
                 ticks_nxt = ticks_reg + 1;
 
-        sclk_state2: 
-            if(ticks_reg == (CLK_COUNT / 2) - 1) begin
+        shift_phase: 
+            if(ticks_reg == dvsr) begin
                 ticks_nxt = '0;
                 if(data_count_reg == NO_DATA_BITS - 1) begin
                     state_nxt = idle;
                     spi_done  = 1'b1;
-                    sclk_nxt = 1'b0;
-                    ss_nxt    = 1'b1;
                 end else begin
-                    state_nxt      = sclk_state1;
+                    state_nxt      = sample_phase;
                     data_count_nxt = data_count_reg + 1;
                     mosi_nxt       = data_reg[NO_DATA_BITS-1];
-                    sclk_nxt = 1'b0;
                 end
             end else
                 ticks_nxt = ticks_reg + 1;
 
         default: begin
             state_nxt = idle;
-            sclk_nxt  = 1'b0;
-            ss_nxt    = 1'b1;
         end
     endcase
 end
+
+assign sclk_int = ((state_nxt == shift_phase) && (!pha)) || ((state_nxt == sample_phase) && (pha));
+assign sclk_nxt = (pol)? ~sclk_int : sclk_int;
 
 // Outputs
 assign mosi  = mosi_reg;
 assign ready = (state_reg == idle);
 assign dout  = data_reg;
 assign sclk  = sclk_reg;
-assign ss_n  = ss_reg;
 
 endmodule
